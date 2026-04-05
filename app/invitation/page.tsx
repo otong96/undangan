@@ -45,8 +45,10 @@ function useReveal() {
 
 export default function WeddingInvitation() {
   const audioRef = useRef<HTMLAudioElement | null>(null)
+
   const [playing, setPlaying] = useState(false)
   const [audioUnlocked, setAudioUnlocked] = useState(false)
+  const [audioLoading, setAudioLoading] = useState(false)
 
   const [messages, setMessages] = useState<MessageItem[]>([])
   const [name, setName] = useState('')
@@ -60,6 +62,7 @@ export default function WeddingInvitation() {
   })
 
   const [selectedImg, setSelectedImg] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useReveal()
 
@@ -68,27 +71,29 @@ export default function WeddingInvitation() {
   // =========================
   // AUDIO
   // =========================
-  const playAudio = async () => {
+  const unlockAndPlayAudio = async () => {
     const audio = audioRef.current
-    if (!audio) return
+    if (!audio) return false
 
     try {
+      setAudioLoading(true)
+
       audio.volume = 0.3
+      audio.playsInline = true
+      audio.muted = false
+
       await audio.play()
+
       setPlaying(true)
       setAudioUnlocked(true)
+      setAudioLoading(false)
+      return true
     } catch (error) {
-      console.error('Gagal memutar audio:', error)
+      console.error('Gagal unlock/play audio:', error)
       setPlaying(false)
+      setAudioLoading(false)
+      return false
     }
-  }
-
-  const pauseAudio = () => {
-    const audio = audioRef.current
-    if (!audio) return
-
-    audio.pause()
-    setPlaying(false)
   }
 
   const toggleMusic = async () => {
@@ -96,9 +101,10 @@ export default function WeddingInvitation() {
     if (!audio) return
 
     if (audio.paused) {
-      await playAudio()
+      await unlockAndPlayAudio()
     } else {
-      pauseAudio()
+      audio.pause()
+      setPlaying(false)
     }
   }
 
@@ -107,30 +113,44 @@ export default function WeddingInvitation() {
     if (!audio) return
 
     audio.volume = 0.3
-    audio.load()
+    audio.preload = 'auto'
+    audio.loop = true
+    audio.playsInline = true
 
-    const unlockOnFirstInteraction = async () => {
-      if (audioUnlocked) return
-
+    const tryPrimeAudio = async () => {
       try {
-        await playAudio()
+        audio.muted = true
+        await audio.play()
+        audio.pause()
+        audio.currentTime = 0
+        audio.muted = false
       } catch (error) {
-        console.error(error)
+        console.error('Prime audio gagal:', error)
       }
-
-      window.removeEventListener('touchstart', unlockOnFirstInteraction)
-      window.removeEventListener('pointerdown', unlockOnFirstInteraction)
-      window.removeEventListener('click', unlockOnFirstInteraction)
     }
 
-    window.addEventListener('touchstart', unlockOnFirstInteraction, { passive: true })
-    window.addEventListener('pointerdown', unlockOnFirstInteraction)
-    window.addEventListener('click', unlockOnFirstInteraction)
+    tryPrimeAudio()
+
+    const handleFirstInteraction = async () => {
+      if (audioUnlocked) return
+
+      const success = await unlockAndPlayAudio()
+
+      if (success) {
+        window.removeEventListener('pointerdown', handleFirstInteraction)
+        window.removeEventListener('touchend', handleFirstInteraction)
+        window.removeEventListener('click', handleFirstInteraction)
+      }
+    }
+
+    window.addEventListener('pointerdown', handleFirstInteraction, { passive: true })
+    window.addEventListener('touchend', handleFirstInteraction, { passive: true })
+    window.addEventListener('click', handleFirstInteraction)
 
     return () => {
-      window.removeEventListener('touchstart', unlockOnFirstInteraction)
-      window.removeEventListener('pointerdown', unlockOnFirstInteraction)
-      window.removeEventListener('click', unlockOnFirstInteraction)
+      window.removeEventListener('pointerdown', handleFirstInteraction)
+      window.removeEventListener('touchend', handleFirstInteraction)
+      window.removeEventListener('click', handleFirstInteraction)
     }
   }, [audioUnlocked])
 
@@ -219,30 +239,32 @@ export default function WeddingInvitation() {
 
   const copyRekening = async () => {
     const text = '1330034503920'
-  
+
     try {
-      // cara modern
-      await navigator.clipboard.writeText(text)
-      alert('Nomor rekening berhasil disalin')
-    } catch (err) {
-      // 🔥 fallback untuk HP jadul / non-https
-      try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text)
+      } else {
         const textarea = document.createElement('textarea')
         textarea.value = text
         textarea.style.position = 'fixed'
-        textarea.style.opacity = '0'
+        textarea.style.left = '-9999px'
+        textarea.style.top = '0'
         document.body.appendChild(textarea)
         textarea.focus()
         textarea.select()
-  
-        document.execCommand('copy')
+
+        const success = document.execCommand('copy')
         document.body.removeChild(textarea)
-  
-        alert('Nomor rekening berhasil disalin')
-      } catch (err2) {
-        // 🔥 fallback terakhir (manual)
-        alert('Salin manual ya: ' + text)
+
+        if (!success) throw new Error('Fallback copy gagal')
       }
+
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2200)
+    } catch (error) {
+      console.error(error)
+      setCopied(false)
+      window.prompt('Salin nomor rekening ini:', text)
     }
   }
 
@@ -332,6 +354,17 @@ export default function WeddingInvitation() {
           -ms-overflow-style: none;
           scrollbar-width: none;
         }
+
+        @keyframes toastIn {
+          from {
+            opacity: 0;
+            transform: translateY(16px) scale(0.96);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
       `}</style>
 
       <div className="min-h-screen relative bg-[url('/background.jpg')] bg-cover bg-center bg-no-repeat text-gray-900 overflow-x-hidden">
@@ -346,12 +379,14 @@ export default function WeddingInvitation() {
           aria-label="Toggle music"
           className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 bg-gradient-to-r from-pink-500 to-rose-400 text-white w-14 h-14 rounded-full shadow-lg active:scale-95 transition-transform duration-200 flex items-center justify-center"
         >
-          <span className="text-xl">{playing ? '⏸' : '🎵'}</span>
+          <span className="text-xl">
+            {audioLoading ? '...' : playing ? '⏸' : '🎵'}
+          </span>
         </button>
 
         {!audioUnlocked && (
           <div className="fixed bottom-20 right-4 z-50 bg-white/90 text-xs text-gray-800 px-3 py-2 rounded-xl shadow">
-            Tap layar untuk mulai musik
+            Tap sekali untuk mulai musik
           </div>
         )}
 
@@ -475,7 +510,7 @@ export default function WeddingInvitation() {
 
               <div className="p-4 bg-pink-50 rounded-xl text-center">
                 <h3 className="font-bold text-gray-900">Akad Nikah</h3>
-                <p className="text-gray-800 font-semibold">11:00 - Selesai  </p>
+                <p className="text-gray-800 font-semibold">11:00 - Selesai</p>
               </div>
 
               <div className="p-4 bg-[#f7f1ea] rounded-xl text-center">
@@ -606,6 +641,15 @@ export default function WeddingInvitation() {
             Terima kasih 🤍
           </div>
         </div>
+
+        {copied && (
+          <div className="fixed bottom-24 right-4 z-[9999] animate-[toastIn_.35s_ease]">
+            <div className="rounded-2xl bg-gray-900/95 text-white px-4 py-3 shadow-2xl backdrop-blur-md border border-white/10">
+              <p className="text-sm font-semibold">Berhasil disalin</p>
+              <p className="text-xs text-white/80">Nomor rekening sudah masuk clipboard</p>
+            </div>
+          </div>
+        )}
       </div>
     </>
   )
