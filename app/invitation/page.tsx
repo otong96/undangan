@@ -74,15 +74,15 @@ export default function WeddingInvitation() {
   const unlockAndPlayAudio = async () => {
     const audio = audioRef.current
     if (!audio) return false
-
+  
     try {
       setAudioLoading(true)
-
+  
       audio.volume = 0.3
-      audio.playsInline = true
       audio.muted = false
-
+  
       await audio.play()
+  
 
       setPlaying(true)
       setAudioUnlocked(true)
@@ -111,11 +111,10 @@ export default function WeddingInvitation() {
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
-
+  
     audio.volume = 0.3
     audio.preload = 'auto'
     audio.loop = true
-    audio.playsInline = true
 
     const tryPrimeAudio = async () => {
       try {
